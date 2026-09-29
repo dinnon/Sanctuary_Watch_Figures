@@ -39,7 +39,7 @@ def add(station, label=None):
     rows.sort(key=lambda r: (r["y"], r["m"]))
     if len({(r["y"], r["m"]) for r in rows}) != len(rows):
         raise ValueError("Duplicate months")
-    name = label or f'{monthly.get("stationName", trend.get("stationName", station))}, WA'
+    name = label or monthly.get("stationName") or trend.get("stationName") or station
     snapshot = {"station": station, "name": name, "retrieved_utc": datetime.now(timezone.utc).isoformat(),
                 "latest_month": f'{rows[-1]["y"]:04d}-{rows[-1]["m"]:02d}',
                 "trend_mm_year": round(trend["trend"] * 2.54, 3), "trend_end": trend["endDate"],
