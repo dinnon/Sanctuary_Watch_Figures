@@ -1,0 +1,60 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NOAA relative sea level chart</title><style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#fff;color:#263c4c;font:13px system-ui,Segoe UI,Arial,sans-serif}
+#chart{position:relative;width:100%;height:100%;min-height:280px}canvas{display:block;width:100%;height:100%;touch-action:none}
+#status{position:absolute;top:8px;right:10px;background:#ffffffeb;border:1px solid #dde7eb;border-radius:4px;padding:5px 8px;color:#526575;font-size:11px;pointer-events:none;max-width:55%;text-align:right}
+#tip{display:none;position:absolute;pointer-events:none;background:white;border-radius:4px;box-shadow:0 2px 12px #263c4c35;padding:7px 9px;white-space:nowrap;font-size:12px}
+#error{display:none;position:absolute;inset:20%;align-items:center;justify-content:center;text-align:center;color:#526575;line-height:1.5}
+</style></head><body><div id="chart"><canvas id="plot" role="img" aria-label="NOAA monthly relative sea level with published trend. Hover for values, drag to zoom, double click to reset."></canvas><div id="status" role="status" aria-live="polite">Loading…</div><div id="tip"></div><div id="error">No saved data for this station and NOAA is unavailable, or the station has no published sea level trend.</div></div>
+<script>
+const BUNDLED=__BUNDLED_SNAPSHOTS__;
+const api='https://api.tidesandcurrents.noaa.gov/dpapi/prod/webapi/product/sealvltrends.json';
+const params=new URLSearchParams(location.search),station=params.get('station')||params.get('id')||'9440910';
+const validId=/^\d{7}$/.test(station);
+const box=document.getElementById('chart'),canvas=document.getElementById('plot'),status=document.getElementById('status'),tip=document.getElementById('tip'),error=document.getElementById('error');
+let data=null,limits=null,geometry=null,point=null,drag=null;
+const label=r=>`${r.y}-${String(r.m).padStart(2,'0')}`;
+function validRows(rows){if(!Array.isArray(rows)||rows.length<12)return false;let seen=new Set();for(const r of rows){let k=label(r);if(!Number.isInteger(r.y)||!Number.isInteger(r.m)||r.m<1||r.m>12||seen.has(k)||!['obs','raw','trend','lo','hi'].every(p=>r[p]===null||typeof r[p]==='number'&&Number.isFinite(r[p])))return false;seen.add(k)}return true}
+function validData(v){return v&&v.station===station&&validRows(v.rows)&&/^\d{4}-\d\d$/.test(v.latest_month)&&Number.isFinite(v.trend_mm_year)}
+function cacheKey(){return `noaa-sea-level-v1-${station}`}
+function cached(){try{const v=JSON.parse(localStorage.getItem(cacheKey()));return validData(v)?v:null}catch{return null}}
+function save(v){try{localStorage.setItem(cacheKey(),JSON.stringify(v))}catch(e){console.warn('Could not cache station',e)}}
+function use(v,kind){data=v;data.rows.sort((a,b)=>a.y-b.y||a.m-b.m);limits=[0,data.rows.length-1];point=null;tip.style.display='none';error.style.display='none';status.textContent=kind==='Live'?'Live data':'Saved data';draw()}
+function bestSaved(){const built=BUNDLED[station],local=cached();if(validData(local)&&(!validData(built)||local.latest_month>=built.latest_month))return [local,'Cached'];return validData(built)?[built,'Saved']:null}
+async function get(url,signal){const response=await fetch(url,{signal,cache:'no-store'});if(!response.ok)throw Error(`NOAA HTTP ${response.status}`);return response.json()}
+async function refresh(){if(!validId){status.textContent='Invalid station ID';error.style.display='flex';return}const saved=bestSaved();if(saved)use(...saved);else status.textContent='Checking NOAA…';
+ const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),15000);
+ try{const [m,t]=await Promise.all([get(`${api}?station=${station}&details=monthlymeans&units=metric&trendType=SINGLE`,abort.signal),get(`${api}?station=${station}`,abort.signal)]);
+  const tr=t.SeaLvlTrends?.find(x=>x.stationId===station);
+  if(m.stationID!==station||m.units!=='meters'||m.trendType!=='SINGLE'||!tr||tr.trendUnits!=='inches/decade'||!Number.isFinite(tr.trend)||!Array.isArray(m.data))throw Error('No supported trend');
+  const rows=m.data.map(r=>({y:r.year,m:r.month,obs:r.mslDeseasonalized,raw:r.msl,trend:r.trendLine,lo:r.lowerConfidence,hi:r.upperConfidence}));
+  if(!validRows(rows))throw Error('Invalid monthly observations');rows.sort((a,b)=>a.y-b.y||a.m-b.m);
+  const live={station,name:m.stationName||station,latest_month:label(rows[rows.length-1]),trend_mm_year:tr.trend*2.54,trend_end:tr.endDate,retrieved_utc:new Date().toISOString(),rows};
+  if(saved&&live.latest_month<saved[0].latest_month)throw Error('NOAA response older than saved data');
+  save(live);use(live,'Live');
+ }catch(e){if(saved)status.textContent='Saved data · NOAA unavailable';else{status.textContent='No data available';error.style.display='flex'}console.warn('NOAA sea level request',e)}finally{clearTimeout(timer)}
+}
+function draw(){const w=box.clientWidth,h=box.clientHeight,dpr=devicePixelRatio||1;if(!w||!h)return;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);if(!data||!limits)return;
+ const left=w<420?50:65,right=18,top=28,bottom=37,pw=w-left-right,ph=h-top-bottom,all=data.rows,v=all.slice(limits[0],limits[1]+1);
+ if(!v.length)return;const num=r=>r.y+(r.m-.5)/12,x0=num(v[0]),x1=num(v[v.length-1]);const vals=v.flatMap(r=>[r.obs,r.lo,r.hi].filter(x=>x!==null).map(x=>x*1000));
+ let lo=Math.floor((Math.min(...vals)-12)/50)*50,hi=Math.ceil((Math.max(...vals)+12)/50)*50;if(hi===lo)hi=lo+50;
+ const X=r=>left+(num(r)-x0)/Math.max(.1,x1-x0)*pw,Y=a=>top+(hi-a)/(hi-lo)*ph;
+ geometry={v,X,Y,left,pw};ctx.font='11px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';
+ let tick=hi-lo>500?100:50;for(let a=Math.ceil(lo/tick)*tick;a<=hi;a+=tick){let y=Y(a);ctx.strokeStyle='#e3e9ec';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillStyle='#526575';ctx.fillText(a,left-7,y)}
+ ctx.textBaseline='top';ctx.textAlign='center';let span=x1-x0,step=span<8?1:span<18?2:span<35?5:10;for(let year=Math.ceil(x0/step)*step;year<=x1;year+=step){let x=left+(year-x0)/Math.max(.1,span)*pw;ctx.fillStyle='#526575';ctx.fillText(year,x,top+ph+9)}
+ ctx.fillStyle='#526575';ctx.textAlign='left';ctx.fillText('mm (NOAA MSL datum)',left,5);
+ let band=v.filter(r=>r.lo!==null&&r.hi!==null);if(band.length){ctx.fillStyle='#e8ad654d';ctx.beginPath();band.forEach((r,i)=>i?ctx.lineTo(X(r),Y(r.hi*1000)):ctx.moveTo(X(r),Y(r.hi*1000)));band.slice().reverse().forEach(r=>ctx.lineTo(X(r),Y(r.lo*1000)));ctx.closePath();ctx.fill()}
+ function line(key,color,width,alpha){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.beginPath();let last=null;for(const r of v){if(r[key]===null){last=null;continue}if(!last||num(r)-num(last)>.13)ctx.moveTo(X(r),Y(r[key]*1000));else ctx.lineTo(X(r),Y(r[key]*1000));last=r}ctx.stroke();ctx.globalAlpha=1}
+ ctx.strokeStyle='#82909a';ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(left,Y(0));ctx.lineTo(w-right,Y(0));ctx.stroke();line('obs','#5690a5',1,.7);line('trend','#ba5d30',2.7,1);
+ if(point&&v.includes(point)&&point.obs!==null){ctx.fillStyle='#214e61';ctx.beginPath();ctx.arc(X(point),Y(point.obs*1000),4,0,7);ctx.fill()}
+ // Compact in-chart key: monthly observations, NOAA trend, 95% interval.
+ ctx.textAlign='left';ctx.textBaseline='middle';ctx.font='11px system-ui';const items=[['#5690a5','Monthly'],['#ba5d30','NOAA trend'],['#edc48f','95% CI']];let x=left,y=h-10;for(const [color,text]of items){ctx.fillStyle=color;ctx.fillRect(x,y-2,13,3);ctx.fillStyle='#526575';ctx.fillText(text,x+18,y);x+=text.length*6.5+37}
+}
+function nearest(px){return geometry.v.reduce((a,b)=>Math.abs(geometry.X(b)-px)<Math.abs(geometry.X(a)-px)?b:a)}
+function hover(e){if(!geometry||drag)return;const rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left;if(x<geometry.left||x>geometry.left+geometry.pw){tip.style.display='none';point=null;draw();return}point=nearest(x);tip.textContent=`${label(point)} · ${point.obs===null?'missing':(point.obs*1000).toFixed(0)+' mm'}${point.trend===null?'':' · trend '+(point.trend*1000).toFixed(0)+' mm'}`;tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-tip.offsetWidth-4,geometry.X(point)+10))+'px';tip.style.top=point.obs===null?'32px':Math.max(28,geometry.Y(point.obs*1000)-37)+'px';draw()}
+canvas.addEventListener('pointermove',e=>{if(!drag)hover(e)});canvas.addEventListener('pointerdown',e=>{if(!geometry)return;drag={x:e.clientX};canvas.setPointerCapture(e.pointerId)});
+canvas.addEventListener('pointerup',e=>{if(!drag||!geometry)return;const rect=canvas.getBoundingClientRect(),a=drag.x-rect.left,b=e.clientX-rect.left;drag=null;if(Math.abs(a-b)<12){hover(e);return}const first=nearest(Math.max(geometry.left,Math.min(a,b))),last=nearest(Math.min(geometry.left+geometry.pw,Math.max(a,b)));let i=data.rows.indexOf(first),j=data.rows.indexOf(last);if(j-i>=2){limits=[i,j];tip.style.display='none';point=null;draw()}});
+canvas.addEventListener('pointercancel',()=>{drag=null});canvas.addEventListener('pointerleave',()=>{if(!drag){tip.style.display='none';point=null;draw()}});
+canvas.addEventListener('dblclick',()=>{if(data){limits=[0,data.rows.length-1];draw()}});
+new ResizeObserver(draw).observe(box);refresh();
+</script></body></html>
