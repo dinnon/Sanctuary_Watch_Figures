@@ -12,6 +12,7 @@ const api='https://api.tidesandcurrents.noaa.gov/dpapi/prod/webapi/product/sealv
 const params=new URLSearchParams(location.search),station=params.get('station')||params.get('id')||'9440910';
 const validId=/^\d{7}$/.test(station),FT=3.280839895013123;
 const box=document.getElementById('plotarea'),canvas=document.getElementById('plot'),tip=document.getElementById('tip'),error=document.getElementById('error'),from=document.getElementById('from'),to=document.getElementById('to'),fromYear=document.getElementById('fromYear'),toYear=document.getElementById('toYear');
+const AXIS_START=1950,AXIS_END=new Date().getUTCFullYear();
 let data=null,limits=null,geometry=null,point=null,drag=null;
 const label=r=>`${r.y}-${String(r.m).padStart(2,'0')}`;
 function validRows(rows){if(!Array.isArray(rows)||rows.length<12)return false;let seen=new Set();for(const r of rows){let k=label(r);if(!Number.isInteger(r.y)||!Number.isInteger(r.m)||r.m<1||r.m>12||seen.has(k)||!['obs','raw','trend','lo','hi'].every(p=>r[p]===null||typeof r[p]==='number'&&Number.isFinite(r[p])))return false;seen.add(k)}return true}
@@ -19,8 +20,8 @@ function validData(v){return v&&v.station===station&&validRows(v.rows)&&v.latest
 function cacheKey(){return `noaa-sealvltrends-single-v2-${station}`}
 function cached(){try{const v=JSON.parse(localStorage.getItem(cacheKey()));return validData(v)?v:null}catch{return null}}
 function save(v){try{localStorage.setItem(cacheKey(),JSON.stringify(v))}catch(e){console.warn('Could not cache station',e)}}
-function syncYears(){if(!data)return;const first=data.rows[0].y,last=data.rows[data.rows.length-1].y;from.min=to.min=first;from.max=to.max=last;from.value=data.rows[limits[0]].y;to.value=data.rows[limits[1]].y;fromYear.value=from.value;toYear.value=to.value}
-function use(v,kind){data=v;data.rows.sort((a,b)=>a.y-b.y||a.m-b.m);limits=[0,data.rows.length-1];point=null;tip.style.display='none';error.style.display='none';if(typeof v.name==='string'&&v.name.trim()){document.title=`Relative sea level at ${v.name}`;canvas.setAttribute('aria-label',`${v.name} monthly relative sea level with published trend. Hover for values and use the year sliders to explore.`);if(parent!==window)parent.postMessage({type:'noaa-station-name',station,name:v.name},'*')}syncYears();draw()}
+function syncYears(){if(!data)return;from.min=to.min=AXIS_START;from.max=to.max=AXIS_END;from.value=limits[0];to.value=limits[1];fromYear.value=from.value;toYear.value=to.value}
+function use(v,kind){data=v;data.rows.sort((a,b)=>a.y-b.y||a.m-b.m);limits=[AXIS_START,AXIS_END];point=null;tip.style.display='none';error.style.display='none';if(typeof v.name==='string'&&v.name.trim()){document.title=`Relative sea level at ${v.name}`;canvas.setAttribute('aria-label',`${v.name} monthly relative sea level with published trend. Hover for values and use the year sliders to explore.`);if(parent!==window)parent.postMessage({type:'noaa-station-name',station,name:v.name},'*')}syncYears();draw()}
 function bestSaved(){const built=BUNDLED[station],local=cached();if(validData(local)&&(!validData(built)||(local.latest_month>built.latest_month||(local.latest_month===built.latest_month&&Date.parse(local.retrieved_utc)>=Date.parse(built.retrieved_utc)))))return [local,'Cached'];return validData(built)?[built,'Saved']:null}
 async function get(url,signal){const response=await fetch(url,{signal,cache:'no-store'});if(!response.ok)throw Error(`NOAA HTTP ${response.status}`);return response.json()}
 async function refresh(){if(!validId){error.textContent='Enter a seven-digit NOAA station ID.';error.style.display='flex';return}const saved=bestSaved();if(saved)use(...saved);
@@ -36,15 +37,16 @@ async function refresh(){if(!validId){error.textContent='Enter a seven-digit NOA
   save(live);use(live,'Live');
  }catch(e){if(!saved)error.style.display='flex';console.warn('NOAA sea level request',e)}finally{clearTimeout(timer);abort.abort()}
 }
-function draw(){const w=box.clientWidth,h=box.clientHeight,dpr=devicePixelRatio||1;if(!w||!h)return;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);if(!data||!limits)return;
- const left=w<420?50:65,right=18,top=28,bottom=37,pw=w-left-right,ph=h-top-bottom,all=data.rows,v=all.slice(limits[0],limits[1]+1);
- if(!v.length)return;const num=r=>r.y+(r.m-.5)/12,x0=num(v[0]),x1=num(v[v.length-1]);const vals=v.flatMap(r=>[r.obs,r.lo,r.hi].filter(x=>x!==null).map(x=>x*FT));if(!vals.length)return;
+function draw(){const w=box.clientWidth,h=box.clientHeight,dpr=devicePixelRatio||1;if(!w||!h)return;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);geometry=null;if(!data||!limits)return;
+ const left=w<420?50:65,right=18,top=28,bottom=37,pw=w-left-right,ph=h-top-bottom,all=data.rows,v=all.filter(r=>r.y>=limits[0]&&r.y<=limits[1]);
+ const num=r=>r.y+(r.m-.5)/12,x0=limits[0],x1=limits[1]+1;const vals=v.flatMap(r=>[r.obs,r.lo,r.hi].filter(x=>x!==null).map(x=>x*FT));const hasValues=vals.length>0;if(!hasValues)vals.push(-.1,.1);
  const spanValue=Math.max(...vals)-Math.min(...vals),tick=spanValue>.7?.2:spanValue>.35?.1:.05;let lo=Math.floor((Math.min(...vals)-tick*.3)/tick)*tick,hi=Math.ceil((Math.max(...vals)+tick*.3)/tick)*tick;if(hi===lo)hi=lo+tick;
  const X=r=>left+(num(r)-x0)/Math.max(.1,x1-x0)*pw,Y=a=>top+(hi-a)/(hi-lo)*ph;
- geometry={v,X,Y,left,pw};ctx.font='11px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';
+ geometry={v,X,Y,left,pw,x0,x1};ctx.font='11px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';
  for(let n=Math.ceil(lo/tick);n<=Math.floor(hi/tick);n++){let a=n*tick;let y=Y(a);ctx.strokeStyle='#e3e9ec';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillStyle='#526575';ctx.fillText(a.toFixed(tick<.1?2:1),left-7,y)}
- ctx.textBaseline='top';ctx.textAlign='center';let span=x1-x0,step=span<8?1:span<18?2:span<35?5:10;for(let year=Math.ceil(x0/step)*step;year<=x1;year+=step){let x=left+(year-x0)/Math.max(.1,span)*pw;ctx.fillStyle='#526575';ctx.fillText(year,x,top+ph+9)}
+ ctx.textBaseline='top';ctx.textAlign='center';let span=x1-x0,step=span<8?1:span<18?2:span<35?5:10;for(let year=Math.ceil(x0/step)*step;year<x1;year+=step){let x=left+(year-x0)/Math.max(.1,span)*pw;ctx.fillStyle='#526575';ctx.fillText(year,x,top+ph+9)}
  ctx.fillStyle='#526575';ctx.textAlign='left';ctx.fillText('ft (NOAA MSL datum)',left,5);
+ if(!hasValues){ctx.fillText('No observations in this period.',left,top+18);return}
  // Do not connect confidence polygons across missing months or missing limits.
  let segments=[],band=[],previous=null;
  for(const r of v){
@@ -61,13 +63,13 @@ function draw(){const w=box.clientWidth,h=box.clientHeight,dpr=devicePixelRatio|
  ctx.textAlign='left';ctx.textBaseline='middle';ctx.font='11px system-ui';const items=[['#5690a5','Monthly'],['#ba5d30','NOAA trend'],['#edc48f','NOAA CI']];let x=left,y=h-10;for(const [color,text]of items){ctx.fillStyle=color;ctx.fillRect(x,y-2,13,3);ctx.fillStyle='#526575';ctx.fillText(text,x+18,y);x+=text.length*6.5+37}
 }
 function nearest(px){return geometry.v.reduce((a,b)=>Math.abs(geometry.X(b)-px)<Math.abs(geometry.X(a)-px)?b:a)}
-function hover(e){if(!geometry||drag)return;const rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left;if(x<geometry.left||x>geometry.left+geometry.pw){tip.style.display='none';point=null;draw();return}point=nearest(x);tip.textContent=`${label(point)} · ${point.obs===null?'missing':(point.obs*FT).toFixed(2)+' ft'}${point.trend===null?'':' · trend '+(point.trend*FT).toFixed(2)+' ft'}`;tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-tip.offsetWidth-4,geometry.X(point)+10))+'px';tip.style.top=point.obs===null?'32px':Math.max(28,geometry.Y(point.obs*FT)-37)+'px';draw()}
+function hover(e){if(!geometry||!geometry.v.length||drag)return;const rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left;if(x<geometry.left||x>geometry.left+geometry.pw){tip.style.display='none';point=null;draw();return}point=nearest(x);if(Math.abs(geometry.X(point)-x)>geometry.pw/(geometry.x1-geometry.x0)/12){tip.style.display='none';point=null;draw();return}tip.textContent=`${label(point)} · ${point.obs===null?'missing':(point.obs*FT).toFixed(2)+' ft'}${point.trend===null?'':' · trend '+(point.trend*FT).toFixed(2)+' ft'}`;tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-tip.offsetWidth-4,geometry.X(point)+10))+'px';tip.style.top=point.obs===null?'32px':Math.max(28,geometry.Y(point.obs*FT)-37)+'px';draw()}
 canvas.addEventListener('pointermove',e=>{if(!drag)hover(e)});canvas.addEventListener('pointerdown',e=>{if(!geometry)return;drag={x:e.clientX};canvas.setPointerCapture(e.pointerId)});
-canvas.addEventListener('pointerup',e=>{if(!drag||!geometry)return;const rect=canvas.getBoundingClientRect(),a=drag.x-rect.left,b=e.clientX-rect.left;drag=null;if(Math.abs(a-b)<12){hover(e);return}const first=nearest(Math.max(geometry.left,Math.min(a,b))),last=nearest(Math.min(geometry.left+geometry.pw,Math.max(a,b)));let i=data.rows.indexOf(first),j=data.rows.indexOf(last);if(j-i>=2){limits=[i,j];syncYears();tip.style.display='none';point=null;draw()}});
+canvas.addEventListener('pointerup',e=>{if(!drag||!geometry)return;const rect=canvas.getBoundingClientRect(),a=drag.x-rect.left,b=e.clientX-rect.left;drag=null;if(Math.abs(a-b)<12){hover(e);return}const year=x=>Math.max(AXIS_START,Math.min(AXIS_END,Math.floor(geometry.x0+(Math.max(geometry.left,Math.min(geometry.left+geometry.pw,x))-geometry.left)/geometry.pw*(geometry.x1-geometry.x0))));limits=[year(Math.min(a,b)),year(Math.max(a,b))];syncYears();tip.style.display='none';point=null;draw()});
 canvas.addEventListener('pointercancel',()=>{drag=null});canvas.addEventListener('pointerleave',()=>{if(!drag){tip.style.display='none';point=null;draw()}});
-function changeYears(changed){if(!data)return;if(+from.value>+to.value){if(changed===from)to.value=from.value;else from.value=to.value}const a=+from.value,b=+to.value;let i=data.rows.findIndex(r=>r.y>=a),j=data.rows.length-1;while(j>0&&data.rows[j].y>b)j--;if(i<0)i=data.rows.length-1;if(j<i)j=i;limits=[i,j];fromYear.value=from.value;toYear.value=to.value;point=null;tip.style.display='none';draw()}
+function changeYears(changed){if(!data)return;if(+from.value>+to.value){if(changed===from)to.value=from.value;else from.value=to.value}limits=[+from.value,+to.value];fromYear.value=from.value;toYear.value=to.value;point=null;tip.style.display='none';draw()}
 from.addEventListener('input',()=>changeYears(from));to.addEventListener('input',()=>changeYears(to));
-document.getElementById('reset').addEventListener('click',()=>{if(data){limits=[0,data.rows.length-1];syncYears();draw()}});
-canvas.addEventListener('dblclick',()=>{if(data){limits=[0,data.rows.length-1];syncYears();draw()}});
+document.getElementById('reset').addEventListener('click',()=>{if(data){limits=[AXIS_START,AXIS_END];syncYears();draw()}});
+canvas.addEventListener('dblclick',()=>{if(data){limits=[AXIS_START,AXIS_END];syncYears();draw()}});
 new ResizeObserver(draw).observe(box);refresh();
 </script></body></html>
