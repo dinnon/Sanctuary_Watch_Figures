@@ -1,59 +1,67 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NOAA relative sea level chart</title><style>
-*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#fff;color:#263c4c;font:13px system-ui,Segoe UI,Arial,sans-serif}
-#chart{width:100%;height:100%;min-height:300px}#plotarea{position:relative;width:100%;height:calc(100% - 58px)}canvas{display:block;width:100%;height:100%;touch-action:none}
-#status{display:none;position:absolute;top:8px;right:10px;background:#ffffffeb;border:1px solid #dde7eb;border-radius:4px;padding:5px 8px;color:#526575;font-size:11px;pointer-events:none;max-width:55%;text-align:right}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#fff;color:#263c4c;font:13px system-ui,Segoe UI,Arial,sans-serif}body{display:flex;flex-direction:column}
+#chart{width:100%;height:auto;flex:1 1 auto;min-height:300px;overflow:hidden}#plotarea{position:relative;width:100%;height:calc(100% - 58px)}canvas{display:block;width:100%;height:100%;touch-action:none}
 #tip{display:none;position:absolute;pointer-events:none;background:white;border-radius:4px;box-shadow:0 2px 12px #263c4c35;padding:7px 9px;white-space:nowrap;font-size:12px}
 #error{display:none;position:absolute;inset:20%;align-items:center;justify-content:center;text-align:center;color:#526575;line-height:1.5}
 #years{height:58px;display:flex;align-items:center;gap:12px;padding:3px 18px 5px 64px;color:#526575;font-size:12px;border-top:1px solid #edf1f3}#years label{display:flex;align-items:center;gap:5px;flex:1;min-width:0}#years output{font-variant-numeric:tabular-nums;color:#263c4c;min-width:34px}#years input{flex:1;min-width:35px;accent-color:#ba5d30}#reset{font:inherit;color:#245b72;background:white;border:1px solid #c9d8df;border-radius:4px;padding:5px 8px;cursor:pointer;white-space:nowrap}#reset:hover{background:#f0f6f8}@media(max-width:500px){#years{padding-left:10px;gap:6px;font-size:11px}#years label{gap:3px}#reset{padding:4px}}
-</style></head><body><div id="chart"><div id="plotarea"><canvas id="plot" role="img" aria-label="NOAA monthly relative sea level with published trend. Hover for values and use the year sliders to explore."></canvas><div id="status" role="status" aria-live="polite"></div><div id="tip"></div><div id="error">No saved data for this station and NOAA is unavailable, or the station has no published sea level trend.</div></div><div id="years"><label>From <input id="from" type="range" aria-label="First year"><output id="fromYear"></output></label><label>To <input id="to" type="range" aria-label="Last year"><output id="toYear"></output></label><button id="reset" type="button">All years</button></div></div>
+</style></head><body><div id="chart"><div id="plotarea"><canvas id="plot" role="img" aria-label="NOAA monthly relative sea level with published trend. Hover for values and use the year sliders to explore."></canvas><div id="tip"></div><div id="error">Data are unavailable for this station.</div></div><div id="years"><label>From <input id="from" type="range" aria-label="First year"><output id="fromYear"></output></label><label>To <input id="to" type="range" aria-label="Last year"><output id="toYear"></output></label><button id="reset" type="button">All years</button></div></div>
 <script>
 const BUNDLED=__BUNDLED_SNAPSHOTS__;
 const api='https://api.tidesandcurrents.noaa.gov/dpapi/prod/webapi/product/sealvltrends.json';
 const params=new URLSearchParams(location.search),station=params.get('station')||params.get('id')||'9440910';
-const validId=/^\d{7}$/.test(station);
-const box=document.getElementById('plotarea'),canvas=document.getElementById('plot'),status=document.getElementById('status'),tip=document.getElementById('tip'),error=document.getElementById('error'),from=document.getElementById('from'),to=document.getElementById('to'),fromYear=document.getElementById('fromYear'),toYear=document.getElementById('toYear');
+const validId=/^\d{7}$/.test(station),FT=3.280839895013123;
+const box=document.getElementById('plotarea'),canvas=document.getElementById('plot'),tip=document.getElementById('tip'),error=document.getElementById('error'),from=document.getElementById('from'),to=document.getElementById('to'),fromYear=document.getElementById('fromYear'),toYear=document.getElementById('toYear');
 let data=null,limits=null,geometry=null,point=null,drag=null;
 const label=r=>`${r.y}-${String(r.m).padStart(2,'0')}`;
 function validRows(rows){if(!Array.isArray(rows)||rows.length<12)return false;let seen=new Set();for(const r of rows){let k=label(r);if(!Number.isInteger(r.y)||!Number.isInteger(r.m)||r.m<1||r.m>12||seen.has(k)||!['obs','raw','trend','lo','hi'].every(p=>r[p]===null||typeof r[p]==='number'&&Number.isFinite(r[p])))return false;seen.add(k)}return true}
-function validData(v){return v&&v.station===station&&validRows(v.rows)&&/^\d{4}-\d\d$/.test(v.latest_month)&&Number.isFinite(v.trend_mm_year)}
-function cacheKey(){return `noaa-sea-level-v1-${station}`}
+function validData(v){return v&&v.station===station&&validRows(v.rows)&&v.latest_month===label(v.rows.at(-1))&&Number.isFinite(v.trend_mm_year)&&/^\d{2}\/\d{2}\/\d{4}$/.test(v.trend_start)&&/^\d{2}\/\d{2}\/\d{4}$/.test(v.trend_end)&&v.trend_summary?.trendType==='SINGLE'&&v.trend_summary.stationId===station&&v.trend_summary.trendUnits==='inches/decade'&&v.trend_mm_year===v.trend_summary.trend*2.54&&v.trend_start===v.trend_summary.startDate&&v.trend_end===v.trend_summary.endDate&&Number.isFinite(Date.parse(v.retrieved_utc))}
+function cacheKey(){return `noaa-sealvltrends-single-v2-${station}`}
 function cached(){try{const v=JSON.parse(localStorage.getItem(cacheKey()));return validData(v)?v:null}catch{return null}}
 function save(v){try{localStorage.setItem(cacheKey(),JSON.stringify(v))}catch(e){console.warn('Could not cache station',e)}}
 function syncYears(){if(!data)return;const first=data.rows[0].y,last=data.rows[data.rows.length-1].y;from.min=to.min=first;from.max=to.max=last;from.value=data.rows[limits[0]].y;to.value=data.rows[limits[1]].y;fromYear.value=from.value;toYear.value=to.value}
-function use(v,kind){data=v;data.rows.sort((a,b)=>a.y-b.y||a.m-b.m);limits=[0,data.rows.length-1];point=null;tip.style.display='none';error.style.display='none';status.style.display=kind==='Live'?'none':'block';status.textContent=kind==='Live'?'':'Saved data';if(typeof v.name==='string'&&v.name.trim()){document.title=`Relative sea level at ${v.name}`;canvas.setAttribute('aria-label',`${v.name} monthly relative sea level with published trend. Hover for values and use the year sliders to explore.`);if(parent!==window)parent.postMessage({type:'noaa-station-name',station,name:v.name},'*')}syncYears();draw()}
-function bestSaved(){const built=BUNDLED[station],local=cached();if(validData(local)&&(!validData(built)||local.latest_month>=built.latest_month))return [local,'Cached'];return validData(built)?[built,'Saved']:null}
+function use(v,kind){data=v;data.rows.sort((a,b)=>a.y-b.y||a.m-b.m);limits=[0,data.rows.length-1];point=null;tip.style.display='none';error.style.display='none';if(typeof v.name==='string'&&v.name.trim()){document.title=`Relative sea level at ${v.name}`;canvas.setAttribute('aria-label',`${v.name} monthly relative sea level with published trend. Hover for values and use the year sliders to explore.`);if(parent!==window)parent.postMessage({type:'noaa-station-name',station,name:v.name},'*')}syncYears();draw()}
+function bestSaved(){const built=BUNDLED[station],local=cached();if(validData(local)&&(!validData(built)||(local.latest_month>built.latest_month||(local.latest_month===built.latest_month&&Date.parse(local.retrieved_utc)>=Date.parse(built.retrieved_utc)))))return [local,'Cached'];return validData(built)?[built,'Saved']:null}
 async function get(url,signal){const response=await fetch(url,{signal,cache:'no-store'});if(!response.ok)throw Error(`NOAA HTTP ${response.status}`);return response.json()}
-async function refresh(){if(!validId){error.style.display='flex';return}const saved=bestSaved();if(saved)use(...saved);else{status.style.display='block';status.textContent='Checking NOAA…'}
+async function refresh(){if(!validId){error.textContent='Enter a seven-digit NOAA station ID.';error.style.display='flex';return}const saved=bestSaved();if(saved)use(...saved);
  const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),15000);
  try{const [m,t]=await Promise.all([get(`${api}?station=${station}&details=monthlymeans&units=metric&trendType=SINGLE`,abort.signal),get(`${api}?station=${station}`,abort.signal)]);
   const tr=t.SeaLvlTrends?.find(x=>x.stationId===station);
-  if(m.stationID!==station||m.units!=='meters'||m.trendType!=='SINGLE'||!tr||tr.trendUnits!=='inches/decade'||!Number.isFinite(tr.trend)||!Array.isArray(m.data))throw Error('No supported trend');
+  if(m.stationID!==station||m.units!=='meters'||m.datum!=='MSL'||m.trendType!=='SINGLE'||!tr||tr.trendType!=='SINGLE'||tr.trendUnits!=='inches/decade'||!Number.isFinite(tr.trend)||!Array.isArray(m.data))throw Error('No supported trend');
   const rows=m.data.map(r=>({y:r.year,m:r.month,obs:r.mslDeseasonalized,raw:r.msl,trend:r.trendLine,lo:r.lowerConfidence,hi:r.upperConfidence}));
   if(!validRows(rows))throw Error('Invalid monthly observations');rows.sort((a,b)=>a.y-b.y||a.m-b.m);
-  const live={station,name:m.stationName||station,latest_month:label(rows[rows.length-1]),trend_mm_year:tr.trend*2.54,trend_end:tr.endDate,retrieved_utc:new Date().toISOString(),rows};
+  const live={station,name:m.stationName||station,latest_month:label(rows[rows.length-1]),trend_mm_year:tr.trend*2.54,trend_start:tr.startDate,trend_end:tr.endDate,trend_summary:tr,source_info:m.info,source_monthly:`${api}?station=${station}&details=monthlymeans&units=metric&trendType=SINGLE`,source_trend:`${api}?station=${station}`,retrieved_utc:new Date().toISOString(),rows};
+  if(!validData(live))throw Error('Invalid trend metadata');
   if(saved&&live.latest_month<saved[0].latest_month)throw Error('NOAA response older than saved data');
   save(live);use(live,'Live');
- }catch(e){if(saved){status.style.display='block';status.textContent='Saved data · NOAA unavailable'}else{status.style.display='none';error.style.display='flex'}console.warn('NOAA sea level request',e)}finally{clearTimeout(timer)}
+ }catch(e){if(!saved)error.style.display='flex';console.warn('NOAA sea level request',e)}finally{clearTimeout(timer);abort.abort()}
 }
 function draw(){const w=box.clientWidth,h=box.clientHeight,dpr=devicePixelRatio||1;if(!w||!h)return;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);if(!data||!limits)return;
  const left=w<420?50:65,right=18,top=28,bottom=37,pw=w-left-right,ph=h-top-bottom,all=data.rows,v=all.slice(limits[0],limits[1]+1);
- if(!v.length)return;const num=r=>r.y+(r.m-.5)/12,x0=num(v[0]),x1=num(v[v.length-1]);const vals=v.flatMap(r=>[r.obs,r.lo,r.hi].filter(x=>x!==null).map(x=>x*1000));
- let lo=Math.floor((Math.min(...vals)-12)/50)*50,hi=Math.ceil((Math.max(...vals)+12)/50)*50;if(hi===lo)hi=lo+50;
+ if(!v.length)return;const num=r=>r.y+(r.m-.5)/12,x0=num(v[0]),x1=num(v[v.length-1]);const vals=v.flatMap(r=>[r.obs,r.lo,r.hi].filter(x=>x!==null).map(x=>x*FT));if(!vals.length)return;
+ const spanValue=Math.max(...vals)-Math.min(...vals),tick=spanValue>.7?.2:spanValue>.35?.1:.05;let lo=Math.floor((Math.min(...vals)-tick*.3)/tick)*tick,hi=Math.ceil((Math.max(...vals)+tick*.3)/tick)*tick;if(hi===lo)hi=lo+tick;
  const X=r=>left+(num(r)-x0)/Math.max(.1,x1-x0)*pw,Y=a=>top+(hi-a)/(hi-lo)*ph;
  geometry={v,X,Y,left,pw};ctx.font='11px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';
- let tick=hi-lo>500?100:50;for(let a=Math.ceil(lo/tick)*tick;a<=hi;a+=tick){let y=Y(a);ctx.strokeStyle='#e3e9ec';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillStyle='#526575';ctx.fillText(a,left-7,y)}
+ for(let n=Math.ceil(lo/tick);n<=Math.floor(hi/tick);n++){let a=n*tick;let y=Y(a);ctx.strokeStyle='#e3e9ec';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillStyle='#526575';ctx.fillText(a.toFixed(tick<.1?2:1),left-7,y)}
  ctx.textBaseline='top';ctx.textAlign='center';let span=x1-x0,step=span<8?1:span<18?2:span<35?5:10;for(let year=Math.ceil(x0/step)*step;year<=x1;year+=step){let x=left+(year-x0)/Math.max(.1,span)*pw;ctx.fillStyle='#526575';ctx.fillText(year,x,top+ph+9)}
- ctx.fillStyle='#526575';ctx.textAlign='left';ctx.fillText('mm (NOAA MSL datum)',left,5);
- let band=v.filter(r=>r.lo!==null&&r.hi!==null);if(band.length){ctx.fillStyle='#e8ad654d';ctx.beginPath();band.forEach((r,i)=>i?ctx.lineTo(X(r),Y(r.hi*1000)):ctx.moveTo(X(r),Y(r.hi*1000)));band.slice().reverse().forEach(r=>ctx.lineTo(X(r),Y(r.lo*1000)));ctx.closePath();ctx.fill()}
- function line(key,color,width,alpha){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.beginPath();let last=null;for(const r of v){if(r[key]===null){last=null;continue}if(!last||num(r)-num(last)>.13)ctx.moveTo(X(r),Y(r[key]*1000));else ctx.lineTo(X(r),Y(r[key]*1000));last=r}ctx.stroke();ctx.globalAlpha=1}
+ ctx.fillStyle='#526575';ctx.textAlign='left';ctx.fillText('ft (NOAA MSL datum)',left,5);
+ // Do not connect confidence polygons across missing months or missing limits.
+ let segments=[],band=[],previous=null;
+ for(const r of v){
+  if(r.lo===null||r.hi===null){if(band.length)segments.push(band);band=[];previous=null;continue}
+  if(previous&&r.y*12+r.m-(previous.y*12+previous.m)!==1){segments.push(band);band=[]}
+  band.push(r);previous=r;
+ }
+ if(band.length)segments.push(band);
+ for(const part of segments){ctx.fillStyle='#e8ad654d';ctx.beginPath();part.forEach((r,i)=>i?ctx.lineTo(X(r),Y(r.hi*FT)):ctx.moveTo(X(r),Y(r.hi*FT)));part.slice().reverse().forEach(r=>ctx.lineTo(X(r),Y(r.lo*FT)));ctx.closePath();ctx.fill()}
+ function line(key,color,width,alpha){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.beginPath();let last=null;for(const r of v){if(r[key]===null){last=null;continue}if(!last||num(r)-num(last)>.13)ctx.moveTo(X(r),Y(r[key]*FT));else ctx.lineTo(X(r),Y(r[key]*FT));last=r}ctx.stroke();ctx.globalAlpha=1}
  ctx.strokeStyle='#82909a';ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(left,Y(0));ctx.lineTo(w-right,Y(0));ctx.stroke();line('obs','#5690a5',1,.7);line('trend','#ba5d30',2.7,1);
- if(point&&v.includes(point)&&point.obs!==null){ctx.fillStyle='#214e61';ctx.beginPath();ctx.arc(X(point),Y(point.obs*1000),4,0,7);ctx.fill()}
- // Compact in-chart key: monthly observations, NOAA trend, 95% interval.
- ctx.textAlign='left';ctx.textBaseline='middle';ctx.font='11px system-ui';const items=[['#5690a5','Monthly'],['#ba5d30','NOAA trend'],['#edc48f','95% CI']];let x=left,y=h-10;for(const [color,text]of items){ctx.fillStyle=color;ctx.fillRect(x,y-2,13,3);ctx.fillStyle='#526575';ctx.fillText(text,x+18,y);x+=text.length*6.5+37}
+ if(point&&v.includes(point)&&point.obs!==null){ctx.fillStyle='#214e61';ctx.beginPath();ctx.arc(X(point),Y(point.obs*FT),4,0,7);ctx.fill()}
+ // Compact in-chart key: monthly observations, NOAA trend, confidence interval.
+ ctx.textAlign='left';ctx.textBaseline='middle';ctx.font='11px system-ui';const items=[['#5690a5','Monthly'],['#ba5d30','NOAA trend'],['#edc48f','NOAA CI']];let x=left,y=h-10;for(const [color,text]of items){ctx.fillStyle=color;ctx.fillRect(x,y-2,13,3);ctx.fillStyle='#526575';ctx.fillText(text,x+18,y);x+=text.length*6.5+37}
 }
 function nearest(px){return geometry.v.reduce((a,b)=>Math.abs(geometry.X(b)-px)<Math.abs(geometry.X(a)-px)?b:a)}
-function hover(e){if(!geometry||drag)return;const rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left;if(x<geometry.left||x>geometry.left+geometry.pw){tip.style.display='none';point=null;draw();return}point=nearest(x);tip.textContent=`${label(point)} · ${point.obs===null?'missing':(point.obs*1000).toFixed(0)+' mm'}${point.trend===null?'':' · trend '+(point.trend*1000).toFixed(0)+' mm'}`;tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-tip.offsetWidth-4,geometry.X(point)+10))+'px';tip.style.top=point.obs===null?'32px':Math.max(28,geometry.Y(point.obs*1000)-37)+'px';draw()}
+function hover(e){if(!geometry||drag)return;const rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left;if(x<geometry.left||x>geometry.left+geometry.pw){tip.style.display='none';point=null;draw();return}point=nearest(x);tip.textContent=`${label(point)} · ${point.obs===null?'missing':(point.obs*FT).toFixed(2)+' ft'}${point.trend===null?'':' · trend '+(point.trend*FT).toFixed(2)+' ft'}`;tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-tip.offsetWidth-4,geometry.X(point)+10))+'px';tip.style.top=point.obs===null?'32px':Math.max(28,geometry.Y(point.obs*FT)-37)+'px';draw()}
 canvas.addEventListener('pointermove',e=>{if(!drag)hover(e)});canvas.addEventListener('pointerdown',e=>{if(!geometry)return;drag={x:e.clientX};canvas.setPointerCapture(e.pointerId)});
 canvas.addEventListener('pointerup',e=>{if(!drag||!geometry)return;const rect=canvas.getBoundingClientRect(),a=drag.x-rect.left,b=e.clientX-rect.left;drag=null;if(Math.abs(a-b)<12){hover(e);return}const first=nearest(Math.max(geometry.left,Math.min(a,b))),last=nearest(Math.min(geometry.left+geometry.pw,Math.max(a,b)));let i=data.rows.indexOf(first),j=data.rows.indexOf(last);if(j-i>=2){limits=[i,j];syncYears();tip.style.display='none';point=null;draw()}});
 canvas.addEventListener('pointercancel',()=>{drag=null});canvas.addEventListener('pointerleave',()=>{if(!drag){tip.style.display='none';point=null;draw()}});
