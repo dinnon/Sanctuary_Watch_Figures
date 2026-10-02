@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NOAA sea level embed builder</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#f4f7f9;color:#243b48;font:16px/1.5 system-ui,sans-serif}
+    main{max-width:1200px;margin:auto;padding:24px 16px}
+    h1{font-size:26px;margin:0 0 8px}h2{font-size:20px;margin:0}
+    p{margin:8px 0 16px}a{color:#155d7a}
+    form{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin:20px 0}
+    label{display:grid;gap:4px;font-size:14px}
+    input,select,button{font:inherit;padding:8px 10px;border:1px solid #aabcc5;border-radius:5px}
+    input{width:150px}button{background:#215c74;color:white;cursor:pointer}
+    section{background:white;border:1px solid #d4e0e6;border-radius:7px;margin:24px 0;overflow:hidden}
+    .heading{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    iframe{display:block;width:100%;height:900px;border:0;border-top:1px solid #d4e0e6;background:white}
+    textarea{display:block;width:100%;min-height:115px;margin:8px 0;font:13px/1.5 ui-monospace,monospace;padding:10px;border:1px solid #aabcc5;border-radius:5px;resize:vertical} .embed-code{padding:16px;background:#f8fafb;border-top:1px solid #d4e0e6}.copy-status{font-size:14px;min-height:21px;margin:6px 0 0}.embed-code label{font-weight:600} #test-link{overflow-wrap:anywhere}
+    .note{font-size:14px;color:#526775}#error{color:#a52b26;margin:0}
+  </style>
+</head>
+<body>
+<main>
+  <h1>NOAA sea level embed builder</h1>
+  <p>Choose a station, preview NOAA’s plots, then copy the embed code into your website. Each embed loads NOAA directly.</p>
+  <form id="controls">
+    <label>NOAA station ID
+      <input id="station" name="station" value="9443090" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required>
+    </label>
+    <label>Frame height
+      <select id="height"><option value="650">650 px (modal test)</option><option value="900" selected>900 px</option><option value="1200">1,200 px</option></select>
+    </label>
+    <button type="submit">Preview &amp; generate code</button>
+  </form>
+  <p id="error" role="alert"></p>
+  <p class="note">Default station: Neah Bay (9443090). Try Toke Point (9440910) or Seattle (9447130). Scroll inside each frame if NOAA’s navigation or map appears above the chart.</p>
+  <p class="note">Share this test: <a id="test-link">Station preview link</a></p>
+  <section>
+    <div class="heading"><h2>Rate of relative sea level change</h2><a id="rate-link" target="_blank" rel="noopener">Open on NOAA ↗</a></div>
+    <iframe id="rate" title="NOAA rate of relative sea level change" loading="eager"></iframe>
+    <div class="embed-code"><label for="rate-code">Embed code: rate of change</label><textarea id="rate-code" readonly spellcheck="false"></textarea><button id="rate-copy" type="button">Copy embed code</button><p id="rate-status" class="copy-status" role="status" aria-live="polite"></p></div>
+  </section>
+  <section>
+    <div class="heading"><h2>Amount of relative sea level change</h2><a id="amount-link" target="_blank" rel="noopener">Open on NOAA ↗</a></div>
+    <iframe id="amount" title="NOAA amount of relative sea level change" loading="eager"></iframe>
+    <div class="embed-code"><label for="amount-code">Embed code: amount of change</label><textarea id="amount-code" readonly spellcheck="false"></textarea><button id="amount-copy" type="button">Copy embed code</button><p id="amount-status" class="copy-status" role="status" aria-live="polite"></p></div>
+  </section>
+  <p class="note">If a frame is blank or says “refused to connect,” try its “Open on NOAA” link. If the original works, inspect your browser console for an embedding-policy error. This page cannot automatically confirm that a cross-site chart rendered successfully.</p>
+  <p class="note">This tests NOAA embedding on GitHub Pages. WordPress may have additional iframe permissions or restrictions. NOAA controls the contents and layout; this test has no saved-data fallback.</p>
+</main>
+<script>
+  const stationInput=document.getElementById('station');
+  const heightInput=document.getElementById('height');
+  const error=document.getElementById('error');
+  const requested=new URLSearchParams(location.search).get('station');
+  if(requested!==null)stationInput.value=requested;
+  let activeStation='';
+  const escapeAttribute=s=>s.replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;');
+  function updateCode(){
+    if(!activeStation)return;
+    for(const id of ['rate','amount']){
+      const frame=document.getElementById(id);
+      document.getElementById(id+'-code').value='<iframe src="'+escapeAttribute(frame.src)+'" title="'+escapeAttribute(frame.title)+'" loading="lazy" style="width:100%;height:'+heightInput.value+'px;border:0;"></iframe>';
+      document.getElementById(id+'-status').textContent='';
+    }
+  }
+  function resize(){
+    for(const id of ['rate','amount'])document.getElementById(id).style.height=heightInput.value+'px';
+    updateCode();
+  }
+  function loadPlots(){
+    const station=stationInput.value.trim();
+    if(!/^\d{7}$/.test(station)){error.textContent='Enter a seven-digit NOAA station ID.';return}
+    error.textContent='';activeStation=station;
+    for(const [id,plot] of [['rate','relative-sea-level-change-ntde'],['amount','relative-sea-level-change']]){
+      const url=new URL('https://tidesandcurrents.noaa.gov/trends-and-extremes/main-product.html');
+      url.search=new URLSearchParams({mapTab:'station',tab:'trends','station-id':station,plot}).toString();
+      document.getElementById(id).src=url.href;
+      document.getElementById(id).title='NOAA '+id+' of relative sea level change — station '+station;
+      document.getElementById(id+'-link').href=url.href;
+    }
+    const link=new URL(location.href);link.searchParams.set('station',station);
+    const anchor=document.getElementById('test-link');anchor.href=link.href;anchor.textContent=location.protocol==='file:'?'Upload this folder to GitHub Pages to share the preview':link.href;
+    resize();
+  }
+  document.getElementById('controls').addEventListener('submit',e=>{e.preventDefault();loadPlots()});
+  heightInput.addEventListener('change',resize);
+  for(const id of ['rate','amount'])document.getElementById(id+'-copy').addEventListener('click',async()=>{
+    const field=document.getElementById(id+'-code'),status=document.getElementById(id+'-status');
+    if(!field.value){status.textContent='Choose a valid station and generate code first.';return}
+    try{await navigator.clipboard.writeText(field.value);status.textContent='Embed code copied.'}
+    catch{field.focus();field.select();status.textContent='Code selected. Press Ctrl+C (Windows) or Command+C (Mac).'}
+  });
+  loadPlots();
+</script>
+</body>
+</html>
