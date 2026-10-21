@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build a single-file embeddable chart with bundled station snapshots."""
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,3 +25,6 @@ stations = json.loads((SITE / "stations.json").read_text(encoding="utf-8"))
 home = (ROOT / "tools" / "home.template.html").read_text(encoding="utf-8")
 (SITE / "index.html").write_text(home.replace("__STATIONS__", json.dumps(stations).replace("<", "\\u003c")), encoding="utf-8")
 print(f"Built {SITE / 'index.html'}, {SITE / 'embed.html'}, and {SITE / 'embed_amount.html'} with {len(snapshots)} station snapshots")
+
+# Keep reusable CSV/JSON data products synchronized with the figure snapshots.
+subprocess.run([sys.executable, str(ROOT / 'tools' / 'export_data.py')], check=True)
