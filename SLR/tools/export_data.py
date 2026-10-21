@@ -115,7 +115,8 @@ def export_csv(meta, rows):
 def write(path, content):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(content, encoding="utf-8", newline="")
+    with temp.open("w", encoding="utf-8", newline="") as output:
+        output.write(content)
     temp.replace(path)
 
 
