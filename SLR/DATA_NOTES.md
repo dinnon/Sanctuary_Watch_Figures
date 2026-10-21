@@ -47,7 +47,12 @@ feet/century. Equivalently, inches/decade × 10 / 12 = feet/century.
 The source trend summary is preserved alongside the transformed plotting rows.
 
 The chart uses NOAA's `mslDeseasonalized`, `trendLine`, `lowerConfidence`, and
-`upperConfidence`. No local regression is fitted. The source's start and end
+`upperConfidence`.
+The trend line and NOAA-supplied confidence limits are displayed only for months
+inside the published `startDate`–`endDate` of the same SINGLE trend summary.
+Outside that analysis period, the chart retains monthly observations but does
+not display or use extrapolated trend/CI values for vertical-axis scaling.
+The underlying NOAA values and the cached/source response are not altered. No local regression is fitted. The source's start and end
 years are retained in the snapshot for WordPress captions. This full-record trend is not the `observedSL` NTDE trend
 starting around 1992, and the two may differ substantially. The source URL is retained in the snapshot; there is no link below the embed.
 
