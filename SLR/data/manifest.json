@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "Dataset": "NOAA CO-OPS Relative Sea Level — combined Sanctuary Watch stations",
+    "Source Agency": "NOAA CO-OPS",
+    "Elevation Units": "meters",
+    "Observation Datum": "MSL",
+    "Data Policy": "noaa_* source values preserved; display_* null outside station-specific analysis dates",
+    "Station Count": 3,
+    "Schema": "Sanctuary Watch SLR export v1"
+  },
+  "stations": [
+    {
+      "station_id": "9440910",
+      "station_name": "Toke Point",
+      "first_month": "1973-01",
+      "latest_month": "2026-07",
+      "rows": 643,
+      "trend_start": "01/15/1973",
+      "trend_end": "12/15/2025",
+      "source_retrieved_utc": "2026-09-30T03:20:55.562648+00:00"
+    },
+    {
+      "station_id": "9443090",
+      "station_name": "Neah Bay",
+      "first_month": "1934-08",
+      "latest_month": "2026-07",
+      "rows": 1104,
+      "trend_start": "08/15/1934",
+      "trend_end": "12/15/2025",
+      "source_retrieved_utc": "2026-09-30T03:21:02.147214+00:00"
+    },
+    {
+      "station_id": "9447130",
+      "station_name": "Seattle",
+      "first_month": "1899-01",
+      "latest_month": "2026-07",
+      "rows": 1531,
+      "trend_start": "01/15/1899",
+      "trend_end": "12/15/2025",
+      "source_retrieved_utc": "2026-09-30T03:21:07.072293+00:00"
+    }
+  ]
+}
