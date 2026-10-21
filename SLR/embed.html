@@ -37,8 +37,12 @@ async function refresh(){if(!validId){error.textContent='Enter a seven-digit NOA
   save(live);use(live,'Live');
  }catch(e){if(!saved)error.style.display='flex';console.warn('NOAA sea level request',e)}finally{clearTimeout(timer);abort.abort()}
 }
+// Preserve NOAA's monthly observations, but never display SINGLE trend or its
+// confidence limits outside the startDate/endDate in NOAA's trend summary.
+function trendMonth(date){const m=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(date||'');return m?Number(m[3])*12+Number(m[1])-1:NaN}
+function plottedRows(rows){const start=trendMonth(data.trend_start),end=trendMonth(data.trend_end);return rows.map(r=>{const month=r.y*12+r.m-1;return month>=start&&month<=end?r:{...r,trend:null,lo:null,hi:null}})}
 function draw(){const w=box.clientWidth,h=box.clientHeight,dpr=devicePixelRatio||1;if(!w||!h)return;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);geometry=null;if(!data||!limits)return;
- const left=w<420?50:65,right=18,top=28,bottom=37,pw=w-left-right,ph=h-top-bottom,all=data.rows,v=all.filter(r=>r.y>=limits[0]&&r.y<=limits[1]);
+ const left=w<420?50:65,right=18,top=28,bottom=37,pw=w-left-right,ph=h-top-bottom,all=data.rows,v=plottedRows(all.filter(r=>r.y>=limits[0]&&r.y<=limits[1]));
  const num=r=>r.y+(r.m-.5)/12,x0=limits[0],x1=limits[1]+1;const vals=v.flatMap(r=>[r.obs,r.lo,r.hi].filter(x=>x!==null).map(x=>x*FT));const hasValues=vals.length>0;if(!hasValues)vals.push(-.1,.1);
  const spanValue=Math.max(...vals)-Math.min(...vals),tick=spanValue>.7?.2:spanValue>.35?.1:.05;let lo=Math.floor((Math.min(...vals)-tick*.3)/tick)*tick,hi=Math.ceil((Math.max(...vals)+tick*.3)/tick)*tick;if(hi===lo)hi=lo+tick;
  const X=r=>left+(num(r)-x0)/Math.max(.1,x1-x0)*pw,Y=a=>top+(hi-a)/(hi-lo)*ph;
