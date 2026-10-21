@@ -87,6 +87,17 @@ Browser caching belongs to that visitor and may be blocked or cleared. It does
 to first-time visitors during an outage. Refresh those occasionally to keep the
 offline copy current.
 
+## Reusable SLR data exports
+
+Run `python tools/build_embed.py` after refreshing station snapshots. This now
+also creates `data/STATION_ID.json`, `data/STATION_ID.csv`,
+`data/all_stations.csv`, and `data/manifest.json`. Outputs use an
+IOOS-inspired metadata header (JSON `metadata`/`data`, CSV metadata lines),
+retain NOAA source fields, and include display-limited trend and CI columns.
+See [data/README.md](data/README.md) for schema, units, caveats, and provenance.
+Only saved snapshots are exported; browser-side NOAA refreshes do not update
+GitHub or the downloadable datasets.
+
 ## Add or refresh a shared fallback
 
 From this SLR folder, with Python 3.9+ (standard library only):
