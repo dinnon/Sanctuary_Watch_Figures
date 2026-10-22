@@ -3,6 +3,26 @@
 Upload this entire **SLR/** folder to the existing repository. Keep the same
 filenames: existing WordPress iframe URLs will continue to work.
 
+## One-click local workflow (recommended)
+
+Open **SLR/run_slr.py** in your Python IDE and press **Run**. No command-line
+arguments or working-directory setup are required. The defaults refresh NOAA
+for **all 13 station IDs in gallery.html**, preserve older valid snapshots if
+one station cannot be refreshed, rebuild both HTML embeds, and regenerate the
+metadata-first CSV/JSON files under **SLR/data/**.
+
+Change `REFRESH_NOAA = False` at the top of the script to rebuild from saved
+snapshots without internet. A station cannot be exported without a saved
+validated NOAA snapshot. Review **SLR/data/run_report.json** after each run for
+station-by-station coverage and failures. Initial checked-in data exports only
+include the three snapshots originally saved; opening a gallery figure in a
+browser does not save that station back into the repository.
+
+The output files remain local until you commit or upload them to GitHub. New
+station refreshes require internet access and NOAA support for both
+`sealvltrends SINGLE` and `observedSL` products. The script does **not** invent
+missing values or silently claim an unavailable station was exported.
+
 ## What changed in this revision
 
 - The amount chart now uses NOAA's published **changeNTDE** and **changePOR**
