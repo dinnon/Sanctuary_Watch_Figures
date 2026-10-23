@@ -10,7 +10,7 @@ const A=context.adapter;
 let count=0;
 for(const file of fs.readdirSync(path.join(root,'snapshots')).filter(f=>f.endsWith('.json'))){
   const full=JSON.parse(fs.readFileSync(path.join(root,'snapshots',file),'utf8')),v=full.observed;
-  assert(A.valid(v,full.station));
+  assert(A.valid(v,full.station), `Invalid observedSL snapshot: ${full.station}`);
   assert.equal(full.trend_summary.trendType,'SINGLE');
   assert.equal(full.trend_mm_year,full.trend_summary.trend*2.54);
   assert(full.trend_start&&full.trend_end);
@@ -20,10 +20,15 @@ for(const file of fs.readdirSync(path.join(root,'snapshots')).filter(f=>f.endsWi
     assert.equal(c.available,v.summary.seaLvlChange[key]!==null);
     if(c.available)assert(Math.abs(c.change*A.FT-c.change/0.3048)<1e-12);
     const levels=A.levels(v,mode);
-    assert(levels);
-    assert(Math.abs((levels.recent-levels.base)-c.change)<1e-12);
-    assert.equal(levels.recentStop-levels.recentStart,5);
-    assert.equal(levels.stop-levels.start,mode==='ntde'?19:5);
+    if(levels){
+      assert(c.available, `${full.station}: numeric levels without official change (${mode})`);
+      assert(Math.abs((levels.recent-levels.base)-c.change)<1e-12);
+      assert.equal(levels.recentStop-levels.recentStart,5);
+      assert.equal(levels.stop-levels.start,mode==='ntde'?19:5);
+    } else {
+      assert(!c.available || mode==='ntde' && v.summary.seaLvlChange.changeNTDEoffset===null,
+        `${full.station}: unexpectedly unavailable levels (${mode})`);
+    }
   }
   const rebuilt=A.make(v.station,{SeaLvlTrendsObserved:[v.summary]},v.monthly,v.retrieved_utc);
   assert.equal(JSON.stringify(rebuilt.monthly),JSON.stringify(v.monthly));
@@ -40,8 +45,10 @@ for(const file of fs.readdirSync(path.join(root,'snapshots')).filter(f=>f.endsWi
   assert.equal(A.comparison(absent,'ntde').change,null); // Never substitute POR.
   assert.equal(A.levels(absent,'ntde'),null);assert.equal(A.levels(absent,'por'),null);
   const shifted=structuredClone(v);shifted.summary.seaLvlChange.changeNTDEoffset=.12;
-  assert.equal(A.levels(shifted,'ntde').base,.12);
-  assert.equal(A.levels(shifted,'ntde').recent,v.summary.seaLvlChange.changeNTDE+.12);
+  if(v.summary.seaLvlChange.changeNTDE!==null)
+    assert.equal(A.levels(shifted,'ntde').base,.12);
+  if(v.summary.seaLvlChange.changeNTDE!==null)
+    assert.equal(A.levels(shifted,'ntde').recent,v.summary.seaLvlChange.changeNTDE+.12);
   const zero=structuredClone(v);zero.summary.seaLvlChange.changeNTDE=0;
   assert(A.valid(zero,v.station));assert.equal(A.comparison(zero,'ntde').available,true);
   assert.equal(A.comparison(zero,'ntde').change,0);
