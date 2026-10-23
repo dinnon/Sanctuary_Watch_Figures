@@ -9,6 +9,7 @@ from __future__ import annotations
 # ---------------------- USER SETTINGS ----------------------
 REFRESH_NOAA = True        # True = request latest NOAA data; False = offline rebuild
 RUN_TESTS = True           # Execute existing Node tests if Node.js is installed
+STOP_ON_TEST_FAILURE = False  # Tests report a failure without discarding completed exports
 FAIL_ON_STATION_ERROR = False  # True = abort if any station cannot refresh
 # Gallery station IDs are the authoritative set; edit gallery.html to add stations.
 # -----------------------------------------------------------
@@ -81,15 +82,23 @@ def main():
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
+    test_results = {}
     if RUN_TESTS and shutil.which("node"):
         for test in ("test_data.cjs", "test_interactions.cjs"):
             script = TOOLS / test
             if script.exists():
                 print("Running", test)
-                subprocess.run(["node", str(script)], cwd=ROOT, check=True)
+                outcome = subprocess.run(["node", str(script)], cwd=ROOT, check=False)
+                test_results[test] = {"passed": outcome.returncode == 0, "exit_code": outcome.returncode}
+                if outcome.returncode != 0:
+                    print(f"WARNING: {test} failed (exit {outcome.returncode}); exported datasets are still available.")
+                    if STOP_ON_TEST_FAILURE:
+                        raise RuntimeError(f"Validation test failed: {test}")
     elif RUN_TESTS:
         print("Node.js not detected; JavaScript tests skipped.")
 
+    report["test_results"] = test_results
+    REPORT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print("\nDone. Files: SLR/data/*.csv, SLR/data/*.json")
     print(f"Snapshots: {len(produced)}; gallery stations: {len(ids)}")
     if missing:
@@ -99,6 +108,8 @@ def main():
     print("See data/run_report.json for station-level outcomes.")
     if missing:
         print("WARNING: Some gallery stations do not have exports. No values were invented.")
+    if any(not result["passed"] for result in test_results.values()):
+        print("WARNING: One or more validation tests failed. Review the Node output before publishing.")
 
 
 if __name__ == "__main__":
